@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Krillion · the daily dive</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.7.5/dist/socket.io.min.js"></script>
+  <style>
+    :root {
+      --card-cyan: #50e0f8;
+      --coral-pink: #e6557e;
+      --coral-shadow: #e66491;
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body {
+      margin: 0; padding: 0; width: 100%; height: 100%;
+      background: #07111b; color: #eef6ff;
+      font-family: ui-monospace, 'SFMono-Regular', 'JetBrains Mono', 'Cascadia Mono', Menlo, Consolas, monospace;
+      overflow-x: hidden;
+    }
+    .mono { font-family: ui-monospace, 'SFMono-Regular', 'JetBrains Mono', Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
+    .pixel-art { image-rendering: pixelated; image-rendering: crisp-edges; }
+    #sceneCanvas { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
+    .crt-scanlines {
+      position: fixed; inset: 0; z-index: 1; pointer-events: none;
+      background: repeating-linear-gradient(to bottom, rgba(0,0,0,0) 0px, rgba(0,0,0,0) 2px, rgba(8,26,42,0.10) 2px, rgba(8,26,42,0.10) 4px);
+    }
+    .corner-btn {
+      width: 44px; height: 38px; background: rgba(40, 66, 91, 0.88); border: 2px solid #0e1c2b;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.14), 0 2px 0 rgba(7,17,27,0.55);
+      display: flex; align-items: center; justify-content: center; color: #b7d2e6; cursor: pointer;
+      transition: background 0.12s ease, transform 0.08s ease;
+    }
+    .corner-btn:hover { background: rgba(56, 87, 115, 0.96); color: #ffffff; }
+    .corner-btn:active { transform: translateY(1px); }
+    .cyan-box {
+      position: relative; background: rgba(17, 29, 51, 0.94); border: 3px solid var(--card-cyan);
+      box-shadow: 0 0 14px rgba(80, 224, 248, 0.24), inset 0 0 18px rgba(80, 224, 248, 0.06);
+      transition: border-color 0.12s ease, background 0.12s ease, transform 0.08s ease;
+    }
+    .cyan-box:hover { background: rgba(22, 39, 68, 0.97); }
+    .cyan-box:active { border-color: var(--coral-pink); transform: translateY(1px); }
+    .beta-tab {
+      position: absolute; top: -12px; left: 16px; background: var(--card-cyan); color: #071422;
+      font-size: 10px; font-weight: 800; letter-spacing: 0.14em; padding: 2px 10px; border: 2px solid #081422; text-transform: uppercase;
+    }
+    .bottom-nav-btn {
+      background: rgba(7, 20, 37, 0.92); border: 1px solid #1d354f; color: #8ba6c2;
+      font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
+      padding: 11px 6px; display: flex; align-items: center; justify-content: center; gap: 5px;
+      transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+    }
+    .bottom-nav-btn:hover { border-color: var(--card-cyan); color: #eef6ff; background: rgba(16, 34, 58, 0.95); }
+    .modal-shell { position: fixed; inset: 0; z-index: 45; background: rgba(7, 17, 29, 0.97); overflow-y: auto; }
+    .menu-tile {
+      background: #0b182a; border: 1px solid #1c314a; padding: 18px 12px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center;
+      transition: border-color 0.14s ease, background 0.14s ease;
+    }
+    .menu-tile:hover { background: #10223a; border-color: #50e0f8; }
+    .menu-tile-active { border: 2px solid var(--coral-pink); }
+    .retro-switch {
+      width: 68px; height: 28px; background: #07111e; border: 1.5px solid #28425b;
+      position: relative; cursor: pointer; display: flex; align-items: center; padding: 2px;
+    }
+    .retro-switch-knob {
+      width: 30px; height: 22px; background: #2b445e; color: #9db8cf; font-size: 9px; font-weight: 900;
+      display: flex; align-items: center; justify-content: center; transition: transform 0.16s ease, background 0.16s ease;
+    }
+    .retro-switch.on { border-color: #50e0f8; }
+    .retro-switch.on .retro-switch-knob { transform: translateX(32px); background: #50e0f8; color: #061321; }
+    .hud-bevel {
+      background: rgba(8, 20, 36, 0.94); border: 2px solid #213c58;
+      clip-path: polygon(6px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 6px), calc(100% - 6px) 100%, 6px 100%, 0 calc(100% - 6px), 0 6px);
+    }
+    .ocean-panel { background: rgba(11, 23, 40, 0.94); border: 2px solid #203c59; box-shadow: 0 18px 46px rgba(0, 6, 16, 0.65); }
+    @keyframes popIn { 0% { transform: scale(0.86) translateY(10px); opacity: 0; } 100% { transform: scale(1) translateY(0); opacity: 1; } }
+    .animate-pop { animation: popIn 0.34s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+    @keyframes shakeX { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
+    .shake-x { animation: shakeX 0.22s ease-in-out; }
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: #07111b; }
+    ::-webkit-scrollbar-thumb { background: #22405d; }
+  </style>
+</head>
+<body class="min-h-screen w-full relative select-none">
+  <canvas id="sceneCanvas"></canvas>
+  <div class="crt-scanlines"></div>
+
+  <!-- Home Corner Controls -->
+  <div id="homeTopControls">
+    <div class="fixed top-3.5 left-3.5 z-30">
+      <button id="menuToggleBtn" aria-label="Open menu" class="corner-btn">
+        <svg class="w-5 h-5" viewBox="0 0 20 20" fill="currentColor"><rect x="3" y="4" width="14" height="2"/><rect x="3" y="9" width="14" height="2"/><rect x="3" y="14" width="14" height="2"/></svg>
+      </button>
+    </div>
+    <div class="fixed top-14 right-3.5 z-30 flex flex-col gap-1">
+      <button id="soundToggleBtn" aria-label="Toggle sound" class="corner-btn">
+        <svg id="iconSoundOn" class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+        <svg id="iconSoundOff" class="w-4 h-4 hidden opacity-60" viewBox="0 0 24 24" fill="currentColor"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>
+      </button>
+      <button id="topSettingsBtn" aria-label="Settings" class="corner-btn">
+        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94s-.02-.64-.07-.94l2.03-1.58-1.92-3.32-2.39.96a7.2 7.2 0 0 0-1.62-.94l-.36-2.54h-3.84l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96-1.92 3.32 2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58 1.92 3.32 2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54h3.84l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96 1.92-3.32-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg>
+      </button>
+      <button id="topSkinsBtn" aria-label="Diver Skins" class="corner-btn">
+        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M16 3l5 3-2 4-2-1v12H7V9l-2 1-2-4 5-3c.6 1.2 2.1 2 4 2s3.4-.8 4-2z"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- MODAL 1: 2-COLUMN MENU -->
+  <div id="menuModal" class="modal-shell hidden">
+    <div class="max-w-[494px] mx-auto px-5 py-6 min-h-screen flex flex-col">
+      <div class="flex items-start justify-between mb-6">
+        <div>
+          <div class="text-[10px] tracking-[0.26em] text-[#6d8ba8] uppercase mb-1">KRILLION</div>
+          <svg viewBox="0 0 180 42" class="w-36 h-auto pixel-art"><g id="menuLogoShadow" fill="#e66491" transform="translate(-3, 3)"></g><g id="menuLogoFace" fill="#f2f7fa"></g></svg>
+        </div>
+        <button id="menuCloseBtn" class="w-10 h-10 bg-[#0d1c30] border border-[#243d59] hover:border-[#50e0f8] text-[#b8d3e8] font-bold flex items-center justify-center">X</button>
+      </div>
+      <div class="text-[10px] font-bold tracking-[0.22em] text-[#5e7d9b] uppercase mb-3">DIVE IN</div>
+      <div class="grid grid-cols-2 gap-3 mb-5">
+        <button data-nav="daily" class="menu-tile menu-tile-active"><span class="text-xl text-[#e6557e] font-bold">↓</span><span class="text-[11px] font-bold tracking-[0.18em] text-[#eef6ff] uppercase">DAILY DIVE</span></button>
+        <button data-nav="unlimited" class="menu-tile"><span class="text-xl text-[#7d9ab8] font-bold">∞</span><span class="text-[11px] font-bold tracking-[0.18em] text-[#cce4f7] uppercase">UNLIMITED</span></button>
+        <button data-nav="pufferLobby" class="menu-tile"><img id="menuPufferImg" alt="Puffer" class="w-8 h-8 object-contain pixel-art" /><span class="text-[11px] font-bold tracking-[0.18em] text-[#cce4f7] uppercase">PUFFER PARTY</span></button>
+        <button data-nav="archive" class="menu-tile"><span class="text-xl text-[#7d9ab8]">⟲</span><span class="text-[11px] font-bold tracking-[0.18em] text-[#cce4f7] uppercase">ARCHIVE</span></button>
+        <button data-nav="packs" class="menu-tile"><svg class="w-5 h-5 text-[#7d9ab8]" viewBox="0 0 20 20" fill="currentColor"><rect x="2" y="2" width="6" height="6"/><rect x="12" y="2" width="6" height="6"/><rect x="2" y="12" width="6" height="6"/><rect x="12" y="12" width="6" height="6"/></svg><span class="text-[11px] font-bold tracking-[0.18em] text-[#cce4f7] uppercase">THEMED PACKS</span></button>
+        <button data-nav="mykrillion" class="menu-tile"><svg class="w-5 h-5 text-[#7d9ab8]" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6"/></svg><span class="text-[11px] font-bold tracking-[0.18em] text-[#cce4f7] uppercase">MY KRILLION</span></button>
+        <button data-nav="friends" class="menu-tile"><svg class="w-5 h-5 text-[#7d9ab8]" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="8" r="3.5"/><circle cx="17" cy="9" r="3"/><path d="M2 20c0-3.5 3.5-5.5 7-5.5s7 2 7 5.5"/><path d="M16 14.8c2.8.3 6 1.8 6 5.2h-4.5"/></svg><span class="text-[11px] font-bold tracking-[0.18em] text-[#cce4f7] uppercase">FRIENDS</span></button>
+        <button data-nav="settings" class="menu-tile"><svg class="w-5 h-5 text-[#7d9ab8]" viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94s-.02-.64-.07-.94l2.03-1.58-1.92-3.32-2.39.96a7.2 7.2 0 0 0-1.62-.94l-.36-2.54h-3.84l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96-1.92 3.32 2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58 1.92 3.32 2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54h3.84l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96 1.92-3.32-2.01-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/></svg><span class="text-[11px] font-bold tracking-[0.18em] text-[#cce4f7] uppercase">SETTINGS</span></button>
+        <button data-nav="how" class="menu-tile"><span class="text-lg font-black text-[#7d9ab8]">?</span><span class="text-[11px] font-bold tracking-[0.18em] text-[#cce4f7] uppercase">FAQ</span></button>
+      </div>
+      <div class="border-t border-[#182b42] pt-4 space-y-2.5 mt-auto">
+        <button data-nav="merch" class="w-full p-4 bg-[#0b182a] border border-[#1c314a] hover:border-[#e6557e] flex items-center justify-between text-left">
+          <div class="flex items-center gap-3"><svg class="w-5 h-5 text-[#e6557e]" viewBox="0 0 24 24" fill="currentColor"><path d="M16 3l5 3-2 4-2-1v12H7V9l-2 1-2-4 5-3c.6 1.2 2.1 2 4 2s3.4-.8 4-2z"/></svg><div><div class="text-xs font-bold tracking-[0.16em] text-white uppercase">MERCH</div><div class="text-[11px] text-[#6d8ba8]">Tees, sweats & caps</div></div></div>
+          <span class="text-[#e6557e] text-sm font-bold">↗</span>
+        </button>
+        <button id="menuChainleBtn" class="w-full p-4 bg-[#0b182a] border border-[#1c314a] hover:border-[#50e0f8] flex items-center justify-between text-left">
+          <div><div class="text-xs font-bold tracking-[0.16em] text-[#50e0f8] uppercase">TRY CHAINLE</div><div class="text-[11px] text-[#6d8ba8]">Fun word association game made by my little brother</div></div>
+          <span class="text-[#50e0f8] text-sm font-bold">↗</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 2: DIVER SKINS -->
+  <div id="skinsModal" class="modal-shell hidden">
+    <div class="max-w-[494px] mx-auto px-4 py-5 min-h-screen flex flex-col">
+      <div class="flex items-center justify-between mb-4">
+        <button id="skinsMenuBtn" class="w-9 h-9 bg-[#0d1c30] border border-[#243d59] text-[#b8d3e8] flex items-center justify-center">☰</button>
+        <div class="text-[11px] font-bold tracking-[0.2em] text-[#50e0f8] uppercase">DIVER SKINS</div>
+        <button id="skinsCloseBtn" class="w-9 h-9 bg-[#0d1c30] border border-[#243d59] hover:border-[#50e0f8] text-[#b8d3e8] font-bold flex items-center justify-center">X</button>
+      </div>
+      <div id="skinsGrid" class="grid grid-cols-2 gap-3 pb-8"></div>
+    </div>
+  </div>
+
+  <!-- MODAL 3: SETTINGS -->
+  <div id="settingsModal" class="modal-shell hidden">
+    <div class="max-w-[494px] mx-auto px-5 py-5 min-h-screen flex flex-col">
+      <div class="flex items-center justify-between mb-6">
+        <button id="settingsMenuBtn" class="w-9 h-9 bg-[#0d1c30] border border-[#243d59] text-[#b8d3e8] flex items-center justify-center">☰</button>
+        <div class="text-[11px] font-bold tracking-[0.22em] text-[#eef6ff] uppercase">SETTINGS</div>
+        <button id="settingsCloseBtn" class="w-9 h-9 bg-[#0d1c30] border border-[#243d59] hover:border-[#50e0f8] text-[#b8d3e8] font-bold flex items-center justify-center">X</button>
+      </div>
+      <div class="space-y-5 flex-1">
+        <div class="flex items-start justify-between gap-4 pb-4 border-b border-[#14263b]"><div><div class="text-xs font-bold tracking-[0.16em] text-[#eef6ff] uppercase">LOW-POWER MODE</div><div class="text-[11px] text-[#6d8ba8] mt-1">Lighter graphics and fewer background animations.</div></div><button id="swLowPower" class="retro-switch shrink-0"><span class="retro-switch-knob">OFF</span></button></div>
+        <div class="flex items-start justify-between gap-4 pb-4 border-b border-[#14263b]"><div><div class="text-xs font-bold tracking-[0.16em] text-[#eef6ff] uppercase">COLORBLIND MODE</div><div class="text-[11px] text-[#6d8ba8] mt-1">Brighter text and more separated tier colors.</div></div><button id="swColorblind" class="retro-switch shrink-0"><span class="retro-switch-knob">OFF</span></button></div>
+        <div class="flex items-start justify-between gap-4 pb-4 border-b border-[#14263b]"><div><div class="text-xs font-bold tracking-[0.16em] text-[#eef6ff] uppercase">ANSWER CORRECTIONS</div><div class="text-[11px] text-[#6d8ba8] mt-1">Preview corrected answers before scoring. Off accepts them immediately.</div></div><button id="swCorrections" class="retro-switch on shrink-0"><span class="retro-switch-knob">ON</span></button></div>
+        <div class="flex items-start justify-between gap-4 pb-4 border-b border-[#14263b]"><div><div class="text-xs font-bold tracking-[0.16em] text-[#eef6ff] uppercase">CLEAR REJECTED ENTRIES</div><div class="text-[11px] text-[#6d8ba8] mt-1">Empty the answer box after a failed attempt.</div></div><button id="swClearRejected" class="retro-switch shrink-0"><span class="retro-switch-knob">OFF</span></button></div>
+                <div class="flex items-start justify-between gap-4 pb-4 border-b border-[#14263b]"><div><div class="text-xs font-bold tracking-[0.16em] text-[#eef6ff] uppercase">OCEAN AMBIENCE & VOICE</div><div class="text-[11px] text-[#6d8ba8] mt-1">Deep underwater soundscape & tier voice callouts.</div></div><button id="swAmbience" class="retro-switch on shrink-0"><span class="retro-switch-knob">ON</span></button></div>
+        <div class="flex items-start justify-between gap-4 pb-4 border-b border-[#14263b]"><div><div class="text-xs font-bold tracking-[0.16em] text-[#eef6ff] uppercase">SHARE LINK</div><div class="text-[11px] text-[#6d8ba8] mt-1">Add a krillion.io link under shared results.</div></div><button id="swShareLink" class="retro-switch shrink-0"><span class="retro-switch-knob">OFF</span></button></div>
+        <div class="pt-2">
+          <div class="text-[10px] font-bold tracking-[0.2em] text-[#5c7894] uppercase mb-3">ACCOUNT & PURCHASES</div>
+          <button id="settingsMyKrillionBtn" class="w-full py-3.5 bg-[#0b182a] border border-[#243d59] hover:border-[#50e0f8] text-xs font-bold tracking-[0.18em] text-[#eef6ff] uppercase mb-4">MY KRILLION →</button>
+          <div class="flex items-center justify-between gap-3"><div class="text-[11px] text-[#6d8ba8]">Unlocked on another device?</div><button id="settingsRestoreBtn" class="px-4 py-2 bg-[#0b182a] border border-[#243d59] hover:border-[#50e0f8] text-[11px] font-bold tracking-[0.16em] text-[#cce4f7] uppercase">RESTORE</button></div>
+        </div>
+      </div>
+      <div class="pt-6 pb-2 flex items-center gap-4 text-[10px] tracking-[0.16em] text-[#5e7b97] uppercase">
+        <button id="setPrivBtn" class="hover:text-white">PRIVACY</button><button data-nav="how" class="hover:text-white">FAQ</button><button id="setIgBtn" class="hover:text-white">INSTAGRAM</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- VIEW 1: HOME SCREEN -->
+  <section id="viewHome" class="relative z-10 min-h-screen w-full max-w-[494px] mx-auto flex flex-col justify-between px-4 pb-4">
+    <div class="flex flex-col items-center justify-between" style="height: 64vh; min-height: 360px;">
+      <div class="w-full flex flex-col items-center text-center pt-[14vh] sm:pt-[15vh]">
+        <svg viewBox="0 0 380 56" class="w-[82%] max-w-[340px] h-auto pixel-art drop-shadow-sm"><g id="logoShadow" fill="#e66491" transform="translate(-4, 4)"></g><g id="logoFace" fill="#f2f7fa"></g></svg>
+        <div class="mt-3 text-[15px] sm:text-[17px] font-bold tracking-[0.38em] text-[#2c7fa3] uppercase" style="text-shadow: 0 1px 0 rgba(255,255,255,0.45);">THE DAILY DIVE</div>
+        <div class="mt-4 text-[11px] sm:text-[12px] font-bold tracking-[0.09em] text-[#4a7490] leading-relaxed">
+          <div>7 prompts · 25 seconds each · rarer answers</div><div>sink deeper</div>
+        </div>
+      </div>
+      <div class="w-full flex flex-col items-start pb-1">
+        <button id="homeHowBtn" class="text-[11px] font-bold tracking-[0.16em] text-[#4c738f] hover:text-[#17364d] uppercase mb-2 flex items-center gap-1.5"><span class="text-[9px]">▸</span> HOW TO PLAY</button>
+        <button id="homePrivacyBtn" class="text-[11px] underline underline-offset-2 text-[#bdd4e4] hover:text-white translate-y-2">Privacy</button>
+      </div>
+    </div>
+    <div class="w-full flex flex-col gap-3 pt-2.5 pb-1">
+      <button id="startPufferBtn" class="cyan-box w-full px-4 py-4 flex items-center justify-between text-left">
+        <span class="beta-tab">BETA · LIMITED TIME</span>
+        <span class="flex items-center gap-3"><img id="homePufferIcon" alt="Puffer" class="w-9 h-9 object-contain pixel-art" /><span class="text-[16px] sm:text-[18px] font-bold tracking-[0.22em] text-[#eef6ff] uppercase">PUFFER PARTY</span></span>
+        <span class="flex items-center gap-1.5 text-[11px] text-[#7c9ab8] shrink-0"><span class="inline-block w-1.5 h-1.5 bg-[#50e0f8]"></span><span id="livePlayingCount" class="mono">10,534 playing</span></span>
+      </button>
+      <button id="startDailyBtn" class="cyan-box w-full py-4 px-4 flex items-center justify-center gap-4">
+        <span class="text-[12px] text-[#eef6ff]">▼</span><span class="text-[16px] sm:text-[18px] font-bold tracking-[0.24em] text-[#eef6ff] uppercase">BEGIN DESCENT</span><span class="text-[12px] text-[#eef6ff]">▼</span>
+      </button>
+      <div class="text-[11px] font-bold tracking-[0.16em] text-[#6d8ba8] uppercase pt-0.5"
